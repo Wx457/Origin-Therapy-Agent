@@ -4,8 +4,8 @@
 
 ```bash
 npm install
-cp .env.example .env       # then set ANTHROPIC_API_KEY (.env is gitignored)
-npx tsx scripts/check-llm-key.ts                          # optional: confirm key works end-to-end
+cp .env.example .env  # then set ANTHROPIC_API_KEY (.env is gitignored)
+npx tsx scripts/check-llm-key.ts   # optional: confirm key works end-to-end
 npm run triage    -- --input data/inbox.json --output output.json --trace .trace/tool-calls.jsonl
 npm run validate  -- --input data/inbox.json --output output.json --trace .trace/tool-calls.jsonl
 ```
@@ -103,17 +103,17 @@ The agent processes each inbox item independently. A single LLM call produces a 
 
 ## 5. What I chose not to build, and why
 
-- **Multi-turn agentic loop / LLM-driven tool use.** Two clean stages (LLM → JSON assessment, deterministic dispatcher → tool calls) keep the audit trace tight and the validator happy. 8 items don't need runtime tool choice.
-- **Vercel AI SDK / LangChain / similar.** Their tool wrappers bypass `src/tools.ts`'s audit recording, which would fail the validator's trace-match check.
-- **Runtime schema library (Zod / Yup).** `schema/output.schema.json` is already the contract; adding Zod just duplicates it.
-- **Persistent patient DB / PDF attachment parsing.** Both are mock tooling here; either would be demo-ware.
-- **Concurrency limiter (`p-limit`).** A capped Sonnet 4.5 key handles ~4 RPS comfortably; per-item `try/catch` + rules fallback already covers a real rate-limit event.
+- **Deterministic Routing over Autonomous Agentic Loops:** I explicitly avoided giving the LLM autonomous control over tool execution (e.g., ReAct patterns) or using heavy framework wrappers like LangChain/Vercel AI SDK. A two-stage pipeline (LLM extracts state $\rightarrow$ pure code dispatches tools) guarantees that if an item is classified as X, Y tools will always run in Z order. This strict separation of concerns keeps the audit trace crystal clear and avoids the "black box" unpredictability of LLM-driven tool choice.
+- **No Redundant Validation Layers (Zod):** Since the assignment already provided standard JSON schemas and ajv, introducing Zod would violate the DRY principle and add unnecessary bundle weight. The prompt + prefill strategy handles JSON discipline efficiently.
+- **Infrastructure Mocking:** I avoided building a mock persistent DB or PDF parsing logic. I kept the focus entirely on the AI orchestrator and state machine to prevent "demo-ware" bloat.
+- **Skipping p-limit / Rate Limiters:** A capped Sonnet 4.5 key handles ~4 RPS comfortably; per-item `try/catch` + rules fallback already covers a real rate-limit event.
 
-## 6. What I'd do with another 4 hours
+## 6. Path to Production: What I'd do with another 4 hours
 
-1. **Adversarial safeguarding eval set + golden regression set** wired as a CI gate; recall < 95 % on the safeguarding subset fails the build.
-2. **Dedicated secondary safeguarding classifier** running async with a different prompt; either it or the main assessment can force P0.
-3. **Field-level confidence scoring** from the LLM (`extraction_confidence: { child_name: 0–1, ... }`); below-threshold values land in `missing_info` and never reach a tool call.
-4. **Unit tests per module.** `safeguard.ts` already has an inline smoke check; same pattern applied to `extract.ts`, `classify.ts`, `handlers.ts`, `draft_safety.ts`, wired into `npm test`.
-5. **Clarification draft on `missing_paperwork`** that lists exactly which fields are blank so the referring office can fill them in one click.
-6. **Async LLM-judge audit** on sampled draft bodies across clinical-advice / "implies sent" / tone, results written into structured logs.
+To take this MVP to production-grade, my immediate focus would shift from the happy path to edge-case handling and rigorous continuous evaluation (Eval):
+
+1. **Confidence-Based Routing for Extraction:** Right now, extraction is binary. I would update the prompt to require a confidence score (0.0 to 1.0) for critical fields like `child_name` or `insurance_id`. If the score falls below a strict threshold, the agent routes the item to `missing_info` rather than hallucinating bad data into downstream tools like `search_patient`.
+2. **Dual-Model Safeguarding (Ensemble Method):** While the rules-based preflight catches obvious P0s, I would add a parallel, fast LLM call (e.g., Claude Haiku or a fine-tuned small model) dedicated *exclusively* to detecting indirect safeguarding cues. If either the primary model or the secondary model flags a risk, it escalates. False positives are acceptable here; false negatives are catastrophic.
+3. **CI-Gated Eval Harness:** I'd commit a golden dataset (~100 labeled items) and an adversarial dataset (focusing on English/Spanish code-switching and subtle abuse disclosures) into an `eval/` directory. This would run in CI on every PR. Any regression in safeguarding recall would strictly fail the build.
+4. **Product Polish on "Missing Paperwork":** I would enhance the `missing_paperwork` workflow so the LLM identifies *exactly* which required fields are blank. The draft message would then output a bulleted list of these missing fields, saving the referring office time.
+5. **Granular Unit Testing:** I implemented an inline smoke test for the `safeguard.ts` module, but I would expand this pattern using Vitest/Jest for `extract.ts`, `classify.ts`, and `draft_safety.ts` to ensure the deterministic fallback layers are bulletproof.
