@@ -12,16 +12,13 @@ npm run validate  -- --input data/inbox.json --output output.json --trace .trace
 
 All flags are optional; both commands default to the paths shown. Nothing in `src/` hardcodes a path, so reviewers can rerun against hidden synthetic input. End-to-end runtime on a capped Anthropic key: **~10–15 s** for the 8-item batch.
 
-## 2. Stack and runtime
+## 2. Stack and Engineering Decisions
 
-- **Language**: TypeScript on Node LTS (≥ 18) via `tsx`. Tested on Node 24.15.0.
-- **Dependencies added**: `@anthropic-ai/sdk`, `dotenv`. Nothing else; `ajv` + `tsx` were already in the starter.
-- **Runtime LLM usage**: Anthropic Claude Sonnet 4.5 (`claude-sonnet-4-5-20250929`), one call per item, `temperature: 0`, assistant prefill `{` for JSON discipline. Model is overridable via `ANTHROPIC_MODEL` in `.env`. The pipeline degrades to a pure rules path on any LLM failure (see §3).
-- **Concurrency**: `Promise.all` over the 8 items, no rate limiter. A single capped Anthropic key handles the peak ~4 RPS comfortably; per-item `try/catch` + rules fallback keeps the batch alive if any one LLM call fails.
-- **Validation**: starter-provided `ajv` + `schema/output.schema.json`. No second schema (no Zod).
-- **AI coding assistant used while building**: Cursor IDE with Claude Opus 4.7.
-
-Starter files in `src/tools.ts`, `src/types.ts`, `src/validate.ts`, `data/`, and `schema/` are **unmodified**. New modules are listed in the Module map below.
+- **Minimalist Footprint:** Node LTS (≥ 18, tested on 24.15.0) running TypeScript via `tsx`. I intentionally kept the dependency graph tiny, adding only `@anthropic-ai/sdk` and `dotenv`. Since the starter already provided `ajv` and JSON schemas, I utilized them directly instead of introducing Zod. This avoids redundant validation layers and keeps the bundle light.
+- **LLM Orchestration:** Powered by Claude Sonnet 4.5 (`claude-sonnet-4-5-20250929`, overridable via `ANTHROPIC_MODEL`), optimized with `temperature: 0` and an assistant prefill (`{`) to enforce strict JSON output. 
+- **Concurrency & Resilience:** The 8-item batch is processed concurrently using `Promise.all`. While a production pipeline would require a formal rate limiter, a standard Anthropic key easily handles this ~4 RPS peak. Crucially, each item is isolated with a `try/catch` block that gracefully degrades to a pure rules-based fallback path on any LLM timeout or failure. This guarantees the batch survives transient network issues.
+- **Development Environment:** Built with Cursor IDE (paired with Claude Opus 4.7 for coding assistance). 
+- **Starter Code Integrity:** All provided files (`src/tools.ts`, `src/types.ts`, `src/validate.ts`, `data/`, `schema/`) were kept **strictly unmodified** to ensure the newly added modules plug seamlessly into your existing evaluation harness.
 
 ## 3. Architecture
 
