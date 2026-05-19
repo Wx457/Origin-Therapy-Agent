@@ -1,4 +1,4 @@
-# Origin AI Engineering Take-Home — Cedar Kids Therapy Referral Inbox Triage Agent
+# Origin Therapy — Referral Inbox Triage Agent
 
 ## 1. How to run
 
